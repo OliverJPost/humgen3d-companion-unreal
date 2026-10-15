@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0
+
+- A material without an ORM map gets the plain roughness and metallic its manifest entry lists
+  (`values`, Human Generator 4.0.35 and later) as the `Roughness` and `Metallic` parameters of
+  its instance, with `UseORM` 0 so the master reads them instead of the ORM texture. The eyes
+  have a roughness of 0.1 and were shaded with the grey of the default ORM texture. The four
+  masters are rebuilt once for the new parameters (version 2); exports without `values` keep the
+  defaults (roughness 0.5, metallic 0).
+
 ## 0.5.0
 
 - A character is only set up when the export manifest `<Name>.humgen3d.json` (Human Generator

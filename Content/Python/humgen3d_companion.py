@@ -10,7 +10,8 @@ fixes the texture settings, creates the four master materials (lit, skin with
 subsurface scattering, dithered masked hair for the caps, and the same with
 the Hair shading model for the cards, with the flow map of the export as the
 strand tangent) and gives every material slot of the skeletal mesh a material
-instance with the maps wired.
+instance with the maps wired and the plain roughness and metallic of the
+manifest where there is no map.
 
 Entry point: ``setup(skeletal_mesh)``. Running it twice changes nothing.
 """
@@ -50,7 +51,15 @@ CARDS_MASTER_NAME = "M_HumGen3D_HairCards"
 # the version below, so edits to an up-to-date master are kept. Raise the
 # version of a master whenever what _build_master makes for it changes.
 MASTER_VERSION_TAG = "HumGen3D.MasterVersion"
-MASTER_VERSIONS = {MASTER_NAME: 1, SKIN_MASTER_NAME: 1, HAIR_MASTER_NAME: 1, CARDS_MASTER_NAME: 1}
+MASTER_VERSIONS = {MASTER_NAME: 2, SKIN_MASTER_NAME: 2, HAIR_MASTER_NAME: 2, CARDS_MASTER_NAME: 2}
+# The manifest lists the inputs of a baked material that are a plain value
+# instead of a map ("values", Human Generator 4.0.35 and later). A material
+# without an ORM map gets them as the Roughness and Metallic parameters of its
+# instance, with UseORM 0 so the master reads the parameters instead of the
+# ORM texture: the eyes have no roughness map but a roughness of 0.1, and
+# were shaded with the grey of the default ORM texture
+VALUE_PARAMETERS = {"roughness": "Roughness", "metallic": "Metallic"}
+USE_ORM_PARAMETER = "UseORM"
 # The export of Human Generator 4.0.28 and later bakes a flow map for the
 # cards: the direction of the strands in the UV space of the card (red and
 # green) and a noise per strand (blue). The cards master feeds it to the
@@ -557,7 +566,15 @@ def _build_master(material, hair, skin, cards):
     orm = _texture_parameter(material, "ORM", -700, 300)
     mel.connect_material_property(normal, "RGB", mp.MP_NORMAL)
     mel.connect_material_property(orm, "R", mp.MP_AMBIENT_OCCLUSION)
-    mel.connect_material_property(orm, "G", mp.MP_ROUGHNESS)
+    # Roughness and Metallic from the ORM map, or from the parameters of the
+    # instance when it has no map (UseORM 0), see VALUE_PARAMETERS
+    use_orm = _scalar_parameter(material, USE_ORM_PARAMETER, 1.0, -450, 400)
+    roughness = _scalar_parameter(material, "Roughness", 0.5, -450, 300)
+    roughness_mix = mel.create_material_expression(material, unreal.MaterialExpressionLinearInterpolate, -250, 300)
+    mel.connect_material_expressions(roughness, "", roughness_mix, "A")
+    mel.connect_material_expressions(orm, "G", roughness_mix, "B")
+    mel.connect_material_expressions(use_orm, "", roughness_mix, "Alpha")
+    mel.connect_material_property(roughness_mix, "", mp.MP_ROUGHNESS)
     specular = _scalar_parameter(material, "Specular", SPECULAR.get(name, 0.5), -450, 600)
     mel.connect_material_property(specular, "", mp.MP_SPECULAR)
     if cards:
@@ -570,7 +587,12 @@ def _build_master(material, hair, skin, cards):
             zero.set_editor_property("r", 0.0)
             mel.connect_material_property(zero, "", mp.MP_METALLIC)
         else:
-            mel.connect_material_property(orm, "B", mp.MP_METALLIC)
+            metallic = _scalar_parameter(material, "Metallic", 0.0, -450, 500)
+            metallic_mix = mel.create_material_expression(material, unreal.MaterialExpressionLinearInterpolate, -250, 500)
+            mel.connect_material_expressions(metallic, "", metallic_mix, "A")
+            mel.connect_material_expressions(orm, "B", metallic_mix, "B")
+            mel.connect_material_expressions(use_orm, "", metallic_mix, "Alpha")
+            mel.connect_material_property(metallic_mix, "", mp.MP_METALLIC)
 
     settings = {
         "blend_mode": unreal.BlendMode.BLEND_MASKED if hair else unreal.BlendMode.BLEND_OPAQUE,
@@ -597,6 +619,16 @@ def _build_master(material, hair, skin, cards):
     unreal.EditorAssetLibrary.save_loaded_asset(material, only_if_is_dirty=False)
 
 
+def _clear_graph(material):
+    mel = unreal.MaterialEditingLibrary
+    # one call deletes only part of the nodes on 5.8, repeat until none are left
+    for _ in range(64):
+        if mel.get_num_material_expressions(material) == 0:
+            return
+        mel.delete_all_material_expressions(material)
+    warn(f"could not clear the graph of {material.get_name()}, unused nodes are left in it")
+
+
 def master_version(material):
     """The version stamp of a master, 0 when it has none."""
     try:
@@ -616,6 +648,10 @@ def ensure_master_material(hair=False, skin=False, cards=False):
     hair = hair or cards
     name = CARDS_MASTER_NAME if cards else HAIR_MASTER_NAME if hair else SKIN_MASTER_NAME if skin else MASTER_NAME
     path = f"{MASTER_FOLDER}/{name}"
+
+    def build(material):
+        _build_master(material, hair, skin, cards)
+
     if unreal.EditorAssetLibrary.does_asset_exist(path):
         material = unreal.EditorAssetLibrary.load_asset(path)
         if not isinstance(material, unreal.Material):
@@ -623,7 +659,7 @@ def ensure_master_material(hair=False, skin=False, cards=False):
         version = master_version(material)
         if version >= MASTER_VERSIONS[name]:
             return material, False
-        _build_master(material, hair, skin, cards)
+        build(material)
         log(f"rebuilt {path} (version {version} -> {MASTER_VERSIONS[name]})")
         return material, True
 
@@ -631,7 +667,7 @@ def ensure_master_material(hair=False, skin=False, cards=False):
     material = tools.create_asset(name, MASTER_FOLDER, unreal.Material, unreal.MaterialFactoryNew())
     if material is None:
         raise RuntimeError(f"could not create {path}")
-    _build_master(material, hair, skin, cards)
+    build(material)
     log(f"created {path}")
     return material, True
 
@@ -692,6 +728,25 @@ def _set_scalar(instance, parameter, value):
         return False
     mel.set_material_instance_scalar_parameter_value(instance, parameter, float(value))
     return True
+
+
+def _set_values(instance, parent, material, textures):
+    """The plain roughness and metallic of the manifest on an instance without
+    an ORM map, see VALUE_PARAMETERS; returns whether anything changed."""
+    names = set(str(n) for n in unreal.MaterialEditingLibrary.get_scalar_parameter_names(parent))
+    changed = False
+    if USE_ORM_PARAMETER in names:
+        changed |= _set_scalar(instance, USE_ORM_PARAMETER, 0.0 if "ORM" not in textures else 1.0)
+    if "ORM" in textures:
+        return changed
+    values = material.get("values")
+    if not isinstance(values, dict):
+        return changed
+    for key, parameter in VALUE_PARAMETERS.items():
+        value = values.get(key)
+        if parameter in names and isinstance(value, (int, float)) and not isinstance(value, bool):
+            changed |= _set_scalar(instance, parameter, min(max(float(value), 0.0), 1.0))
+    return changed
 
 
 def _original_tag(part):
@@ -814,7 +869,7 @@ def setup(skeletal_mesh, options=None):
         else:
             parent = masters["lit"]
         instance, changed = _ensure_instance(folder, instance_name, parent, textures)
-        overridden = False
+        overridden = _set_values(instance, parent, material, textures)
         if kind in HAIR_TYPES:
             overridden |= _set_cutoff(instance, cutoff)
         if kind in SKIN_TYPES:

@@ -1,7 +1,7 @@
 {
   "FileVersion": 3,
-  "Version": 5,
-  "VersionName": "0.5.0",
+  "Version": 6,
+  "VersionName": "0.6.0",
   "FriendlyName": "Human Generator 3D Companion for Unreal Engine",
   "Description": "Sets up characters exported from Human Generator for Blender after Unreal Engine imports them: master materials, material instances per part, the ORM textures Interchange skips, dithered masked two-sided hair, skin with subsurface scattering.",
   "Category": "Importers",

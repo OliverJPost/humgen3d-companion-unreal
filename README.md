@@ -25,8 +25,9 @@ entry:
   packing than ORM (metallic-smoothness, metallic-roughness, separate maps) get the master's
   default ORM texture
 - four master materials in `/Game/HumGen3D/`: `M_HumGen3D_Master` (BaseColor, Normal and ORM
-  texture parameters, the ORM channels split into Ambient Occlusion, Roughness and Metallic, and a
-  Specular scalar parameter),
+  texture parameters, the ORM channels split into Ambient Occlusion, Roughness and Metallic, a
+  Specular scalar parameter, and Roughness, Metallic and UseORM scalar parameters for a material
+  without an ORM map, which gets the plain values its manifest entry lists),
   `M_HumGen3D_Skin` (the same with the *Subsurface Profile* shading model, as the skin was
   rendered with subsurface scattering in Blender and looks flat and harsh without it; no profile
   is assigned, so the engine's default skin profile applies until you set one) and
@@ -43,7 +44,7 @@ entry:
   threshold, so the strands keep their width at a distance instead of thinning out
 - one material instance per material slot of the mesh that the manifest lists,
   `MI_<Name>_<Part>` next to the mesh, with the textures the manifest gives that material set
-  (eyes have only a base color); the skin uses the skin master, hair cards with a flow map the
+  (a material without an ORM map gets the plain roughness and metallic of its manifest entry); the skin uses the skin master, hair cards with a flow map the
   cards master, the haircaps and cards without one the hair master, everything else the lit master
 - the instances assigned to the skeletal mesh's material slots
 
