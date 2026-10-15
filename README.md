@@ -24,10 +24,14 @@ entry:
   the green channel flipped when the export wrote OpenGL normal maps. Exports with another
   packing than ORM (metallic-smoothness, metallic-roughness, separate maps) get the master's
   default ORM texture
-- four master materials in `/Game/HumGen3D/`: `M_HumGen3D_Master` (BaseColor, Normal and ORM
+- five master materials in `/Game/HumGen3D/`: `M_HumGen3D_Master` (BaseColor, Normal and ORM
   texture parameters, the ORM channels split into Ambient Occlusion, Roughness and Metallic, a
   Specular scalar parameter, and Roughness, Metallic and UseORM scalar parameters for a material
-  without an ORM map, which gets the plain values its manifest entry lists),
+  without an ORM map, which gets the plain values its manifest entry lists), `M_HumGen3D_Eye`
+  (the iris sampled where the view ray refracted at the cornea meets it, a dark limbus, half
+  of the baked iris normal, the roughness of the manifest and the reflectance of water;
+  IrisRadius, PupilRadius, IrisDepth, CorneaIOR, PupilSize, LimbusDarken, LimbusWidth,
+  IrisNormal, Roughness and Specular as parameters),
   `M_HumGen3D_Skin` (the same with the *Subsurface Profile* shading model, as the skin was
   rendered with subsurface scattering in Blender and looks flat and harsh without it; no profile
   is assigned, so the engine's default skin profile applies until you set one) and
@@ -44,7 +48,7 @@ entry:
   threshold, so the strands keep their width at a distance instead of thinning out
 - one material instance per material slot of the mesh that the manifest lists,
   `MI_<Name>_<Part>` next to the mesh, with the textures the manifest gives that material set
-  (a material without an ORM map gets the plain roughness and metallic of its manifest entry); the skin uses the skin master, hair cards with a flow map the
+  (a material without an ORM map gets the plain roughness and metallic of its manifest entry); the skin uses the skin master, the eyes the eye master, hair cards with a flow map the
   cards master, the haircaps and cards without one the hair master, everything else the lit master
 - the instances assigned to the skeletal mesh's material slots
 
@@ -111,6 +115,7 @@ companion offers to set up the characters that use the defaults again.
 | Haircap | Set Up | *As Imported* gives the haircap slots the material Interchange made back (remembered in the metadata tag `HumGen3D.Original.<Part>`) |
 | Subsurface Profile | on | Off gives the skin the plain master (Default Lit) |
 | Skin Specular | 0.3 | The *Specular* parameter of the skin instance; 0.5 is the engine default, which made the skin look wet |
+| Eye Shading | Eye Master | The eye master with the refracted iris, or the lit master |
 | Show Dialog On Import | on | Project defaults only: whether the dialog above is shown |
 
 ## Import check

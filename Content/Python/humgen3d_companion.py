@@ -6,12 +6,12 @@ export's manifest next to it (``<Name>.humgen3d.json``, written by Human
 Generator 4.0.32 and later) is touched; the manifest says what every material
 is and which texture files belong to it, so every naming scheme of the export
 works. The companion imports the textures Interchange skips (ORM, flow),
-fixes the texture settings, creates the four master materials (lit, skin with
-subsurface scattering, dithered masked hair for the caps, and the same with
-the Hair shading model for the cards, with the flow map of the export as the
-strand tangent) and gives every material slot of the skeletal mesh a material
-instance with the maps wired and the plain roughness and metallic of the
-manifest where there is no map.
+fixes the texture settings, creates the five master materials (lit, skin with
+subsurface scattering, dithered masked hair for the caps, the same with the
+Hair shading model for the cards, with the flow map of the export as the
+strand tangent, and the eyes with the iris refracted behind the cornea) and gives every
+material slot of the skeletal mesh a material instance with the maps wired
+and the plain roughness and metallic of the manifest where there is no map.
 
 Entry point: ``setup(skeletal_mesh)``. Running it twice changes nothing.
 """
@@ -38,6 +38,7 @@ SKIN_TYPES = ("skin",)
 HAIRCAP_TYPES = ("haircap", "face_haircap")
 CARD_TYPES = ("hair_cards",)
 HAIR_TYPES = HAIRCAP_TYPES + CARD_TYPES
+EYE_TYPES = ("eyes",)
 
 # --------------------------------------------------------------------------- masters
 
@@ -46,12 +47,13 @@ MASTER_NAME = "M_HumGen3D_Master"
 SKIN_MASTER_NAME = "M_HumGen3D_Skin"
 HAIR_MASTER_NAME = "M_HumGen3D_Hair"
 CARDS_MASTER_NAME = "M_HumGen3D_HairCards"
+EYE_MASTER_NAME = "M_HumGen3D_Eye"
 # Metadata tag with the version of the graph and settings a master was built
 # with. A master is (re)built only when it is missing or its stamp is lower than
 # the version below, so edits to an up-to-date master are kept. Raise the
 # version of a master whenever what _build_master makes for it changes.
 MASTER_VERSION_TAG = "HumGen3D.MasterVersion"
-MASTER_VERSIONS = {MASTER_NAME: 2, SKIN_MASTER_NAME: 2, HAIR_MASTER_NAME: 2, CARDS_MASTER_NAME: 2}
+MASTER_VERSIONS = {MASTER_NAME: 2, SKIN_MASTER_NAME: 2, HAIR_MASTER_NAME: 2, CARDS_MASTER_NAME: 2, EYE_MASTER_NAME: 1}
 # The manifest lists the inputs of a baked material that are a plain value
 # instead of a map ("values", Human Generator 4.0.35 and later). A material
 # without an ORM map gets them as the Roughness and Metallic parameters of its
@@ -100,7 +102,60 @@ EDGE_FADE_CODE = (
 # around 0.3. The hair cards average 0.13 in Blender. The haircaps lie under
 # the cards and have no roughness map: with more than a little specular they
 # showed as a glossy spot in every parting.
-SPECULAR = {MASTER_NAME: 0.5, SKIN_MASTER_NAME: 0.3, HAIR_MASTER_NAME: 0.05, CARDS_MASTER_NAME: 0.4}
+SPECULAR = {MASTER_NAME: 0.5, SKIN_MASTER_NAME: 0.3, HAIR_MASTER_NAME: 0.05, CARDS_MASTER_NAME: 0.4, EYE_MASTER_NAME: 0.31}
+# The eye master, see _build_eye_master. The game eyes of the export are one
+# opaque shell, the front of the cornea, with the eye baked onto it: the pupil
+# at the centre of the texture, the iris around it, the sclera around that, and
+# a normal map with the cavity of the iris. These are the radii of the iris
+# and the pupil in that texture (UV units from the centre), how far behind the
+# cornea the iris lies as a fraction of the iris radius, the IOR of the cornea,
+# the pupil size relative to the baked one (-1 to 1), the darkening and width
+# of the limbus (the edge of the iris) and the roughness of the cornea, which
+# the roughness of the manifest overrides. Specular 0.31 is the reflectance of
+# water (0.025) on Unreal's scale.
+EYE_IRIS_RADIUS = 0.11
+EYE_PUPIL_RADIUS = 0.037
+EYE_IRIS_DEPTH = 0.45
+EYE_CORNEA_IOR = 1.376
+EYE_PUPIL_SIZE = 0.0
+EYE_LIMBUS_DARKEN = 0.5
+EYE_LIMBUS_WIDTH = 0.15
+EYE_ROUGHNESS = 0.1
+# How much of the baked iris normal the eye master uses. Default Lit has one
+# normal for the diffuse and the specular, so the glint of the cornea follows
+# the fibres of the iris; at half strength the cavity still reads and the
+# glint stays one highlight. (The engine's Eye shading model, which lights the
+# iris with its own normal under a smooth cornea, was tried: its shadow term
+# drew the shadow of the upper lid as a hard dark band across the eye.)
+EYE_IRIS_NORMAL = 0.5
+# Where the view ray, refracted at the cornea, samples the eye texture; and the
+# pupil dilated by moving the texels of the iris radially. Returns the UV, the
+# distance from the centre and the iris mask.
+EYE_UV_CODE = (
+    "float2 centre = UV - 0.5;\n"
+    "float r = length(centre);\n"
+    "float R = IrisRadius;\n"
+    "float iris = 1.0 - smoothstep(R, R * 1.12, r);\n"
+    "float3 V = normalize(mul(Parameters.TangentToWorld, Parameters.CameraVector));\n"
+    "V.z = max(V.z, 0.05);\n"
+    "float3 refracted = refract(-V, float3(0.0, 0.0, 1.0), 1.0 / CorneaIOR);\n"
+    "float2 shift = refracted.xy / max(-refracted.z, 0.2) * (IrisDepth * R);\n"
+    "centre += shift * iris;\n"
+    "r = length(centre);\n"
+    "float p0 = PupilRadius;\n"
+    "float p = clamp(p0 * (1.0 + 0.5 * PupilSize), 0.2 * p0, 0.8 * R);\n"
+    "float sampled = r < p ? r * p0 / p : p0 + (r - p) * (R - p0) / max(R - p, 1e-4);\n"
+    "sampled = r < R ? sampled : r;\n"
+    "float2 uv = 0.5 + centre * (sampled / max(r, 1e-5));\n"
+    "return float4(uv, r, iris);"
+)
+# The dark ring where the iris meets the sclera
+EYE_LIMBUS_CODE = (
+    "float R = IrisRadius;\n"
+    "float ring = smoothstep(R * (1.0 - LimbusWidth), R, Distance)"
+    " * (1.0 - smoothstep(R, R * (1.0 + 0.6 * LimbusWidth), Distance));\n"
+    "return Color * (1.0 - LimbusDarken * ring);"
+)
 # Alpha below which a hair card texel is cut out. The export bakes the strand
 # coverage of the hair atlas into the alpha: solid strands with anti-aliased
 # edges and faint fine strands. At the half alpha Unreal's own masked materials
@@ -629,6 +684,121 @@ def _clear_graph(material):
     warn(f"could not clear the graph of {material.get_name()}, unused nodes are left in it")
 
 
+def _custom(material, description, code, inputs, output_type, x, y):
+    """A Custom HLSL node with named inputs."""
+    mel = unreal.MaterialEditingLibrary
+    node = mel.create_material_expression(material, unreal.MaterialExpressionCustom, x, y)
+    node.set_editor_property("description", description)
+    node.set_editor_property("code", code)
+    node.set_editor_property("output_type", output_type)
+    custom_inputs = []
+    for name in inputs:
+        custom_input = unreal.CustomInput()
+        custom_input.set_editor_property("input_name", name)
+        custom_inputs.append(custom_input)
+    node.set_editor_property("inputs", custom_inputs)
+    return node
+
+
+def _component_mask(material, node, output, channels, x, y):
+    mel = unreal.MaterialEditingLibrary
+    mask = mel.create_material_expression(material, unreal.MaterialExpressionComponentMask, x, y)
+    for channel in "rgba":
+        mask.set_editor_property(channel, channel in channels)
+    mel.connect_material_expressions(node, output, mask, "")
+    return mask
+
+
+def _build_eye_master(material):
+    """Replaces the graph and settings of the eye master and stamps it.
+
+    The game eyes of the export are one opaque shell with the eye baked onto
+    it, which Default Lit with the maps as they are shaded like a painted ball.
+    The eye master refracts the view ray at the cornea and samples the iris
+    where that ray meets it, so the iris shifts and bulges with the view angle,
+    darkens the limbus, can dilate the pupil, uses half of the baked iris
+    normal and reflects at the roughness of the manifest and the reflectance
+    of water; see the EYE_ constants. Default Lit, so it needs no project
+    setting and renders in every path.
+    """
+    mel = unreal.MaterialEditingLibrary
+    mp = unreal.MaterialProperty
+    name = material.get_name()
+    _clear_graph(material)
+    _connect_backlit(material, None)
+
+    # the refracted UV; the view vector in tangent space is read from the pixel
+    # parameters inside the node (Parameters.CameraVector, Parameters.TangentToWorld)
+    texcoord = mel.create_material_expression(material, unreal.MaterialExpressionTextureCoordinate, -1500, -400)
+    iris_radius = _scalar_parameter(material, "IrisRadius", EYE_IRIS_RADIUS, -1500, -200)
+    pupil_radius = _scalar_parameter(material, "PupilRadius", EYE_PUPIL_RADIUS, -1500, -120)
+    iris_depth = _scalar_parameter(material, "IrisDepth", EYE_IRIS_DEPTH, -1500, -40)
+    cornea_ior = _scalar_parameter(material, "CorneaIOR", EYE_CORNEA_IOR, -1500, 40)
+    pupil_size = _scalar_parameter(material, "PupilSize", EYE_PUPIL_SIZE, -1500, 120)
+    eye_uv = _custom(
+        material, "Eye UV", EYE_UV_CODE,
+        ("UV", "IrisRadius", "PupilRadius", "IrisDepth", "CorneaIOR", "PupilSize"),
+        unreal.CustomMaterialOutputType.CMOT_FLOAT4, -1150, -300,
+    )
+    mel.connect_material_expressions(texcoord, "", eye_uv, "UV")
+    for node, pin in ((iris_radius, "IrisRadius"), (pupil_radius, "PupilRadius"), (iris_depth, "IrisDepth"), (cornea_ior, "CorneaIOR"), (pupil_size, "PupilSize")):
+        mel.connect_material_expressions(node, "", eye_uv, pin)
+    uv = _component_mask(material, eye_uv, "", "rg", -950, -400)
+    distance = _component_mask(material, eye_uv, "", "b", -950, -300)
+
+    # the maps, sampled there
+    base_color = _texture_parameter(material, "BaseColor", -700, -400)
+    normal = _texture_parameter(material, "Normal", -700, -100)
+    mel.connect_material_expressions(uv, "", base_color, "UVs")
+    mel.connect_material_expressions(uv, "", normal, "UVs")
+    limbus_darken = _scalar_parameter(material, "LimbusDarken", EYE_LIMBUS_DARKEN, -700, 200)
+    limbus_width = _scalar_parameter(material, "LimbusWidth", EYE_LIMBUS_WIDTH, -700, 280)
+    limbus = _custom(
+        material, "Limbus", EYE_LIMBUS_CODE,
+        ("Color", "Distance", "IrisRadius", "LimbusDarken", "LimbusWidth"),
+        unreal.CustomMaterialOutputType.CMOT_FLOAT3, -450, -400,
+    )
+    mel.connect_material_expressions(base_color, "RGB", limbus, "Color")
+    mel.connect_material_expressions(distance, "", limbus, "Distance")
+    mel.connect_material_expressions(iris_radius, "", limbus, "IrisRadius")
+    mel.connect_material_expressions(limbus_darken, "", limbus, "LimbusDarken")
+    mel.connect_material_expressions(limbus_width, "", limbus, "LimbusWidth")
+
+    # the iris normal at part strength: a lerp between the flat normal and the map
+    flat = mel.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, -450, -150)
+    flat.set_editor_property("constant", unreal.LinearColor(0.0, 0.0, 1.0, 0.0))
+    iris_normal = _scalar_parameter(material, "IrisNormal", EYE_IRIS_NORMAL, -450, -50)
+    normal_mix = mel.create_material_expression(material, unreal.MaterialExpressionLinearInterpolate, -250, -100)
+    mel.connect_material_expressions(flat, "", normal_mix, "A")
+    mel.connect_material_expressions(normal, "RGB", normal_mix, "B")
+    mel.connect_material_expressions(iris_normal, "", normal_mix, "Alpha")
+
+    # the cornea: the roughness of the manifest and the reflectance of water
+    roughness = _scalar_parameter(material, "Roughness", EYE_ROUGHNESS, -450, 100)
+    specular = _scalar_parameter(material, "Specular", SPECULAR[name], -450, 180)
+
+    mel.connect_material_property(limbus, "", mp.MP_BASE_COLOR)
+    mel.connect_material_property(normal_mix, "", mp.MP_NORMAL)
+    mel.connect_material_property(roughness, "", mp.MP_ROUGHNESS)
+    mel.connect_material_property(specular, "", mp.MP_SPECULAR)
+
+    settings = {
+        "blend_mode": unreal.BlendMode.BLEND_OPAQUE,
+        "two_sided": False,
+        "shading_model": unreal.MaterialShadingModel.MSM_DEFAULT_LIT,
+    }
+    for key, value in settings.items():
+        material.set_editor_property(key, value)
+    for usage in ("used_with_skeletal_mesh", "used_with_morph_targets"):
+        try:
+            material.set_editor_property(usage, True)
+        except Exception:
+            pass
+    mel.recompile_material(material)
+    unreal.EditorAssetLibrary.set_metadata_tag(material, MASTER_VERSION_TAG, str(MASTER_VERSIONS[name]))
+    unreal.EditorAssetLibrary.save_loaded_asset(material, only_if_is_dirty=False)
+
+
 def master_version(material):
     """The version stamp of a master, 0 when it has none."""
     try:
@@ -637,7 +807,7 @@ def master_version(material):
         return 0
 
 
-def ensure_master_material(hair=False, skin=False, cards=False):
+def ensure_master_material(hair=False, skin=False, cards=False, eye=False):
     """The master material, built when it is missing or older than this
     version of the companion; returns ``(material, built)``.
 
@@ -646,11 +816,14 @@ def ensure_master_material(hair=False, skin=False, cards=False):
     in place, which keeps the material instances that use it.
     """
     hair = hair or cards
-    name = CARDS_MASTER_NAME if cards else HAIR_MASTER_NAME if hair else SKIN_MASTER_NAME if skin else MASTER_NAME
+    name = EYE_MASTER_NAME if eye else CARDS_MASTER_NAME if cards else HAIR_MASTER_NAME if hair else SKIN_MASTER_NAME if skin else MASTER_NAME
     path = f"{MASTER_FOLDER}/{name}"
 
     def build(material):
-        _build_master(material, hair, skin, cards)
+        if eye:
+            _build_eye_master(material)
+        else:
+            _build_master(material, hair, skin, cards)
 
     if unreal.EditorAssetLibrary.does_asset_exist(path):
         material = unreal.EditorAssetLibrary.load_asset(path)
@@ -816,7 +989,7 @@ def setup(skeletal_mesh, options=None):
     cutoff = float(options["hair_cutoff"])
 
     masters = {}
-    for kind, flags in (("lit", {}), ("skin", {"skin": True}), ("hair", {"hair": True}), ("cards", {"cards": True})):
+    for kind, flags in (("lit", {}), ("skin", {"skin": True}), ("hair", {"hair": True}), ("cards", {"cards": True}), ("eye", {"eye": True})):
         masters[kind], built = ensure_master_material(**flags)
         if built:
             summary["masters_built"].append(masters[kind].get_name())
@@ -866,6 +1039,8 @@ def setup(skeletal_mesh, options=None):
             parent = masters["hair"]
         elif kind in SKIN_TYPES:
             parent = masters["skin"] if options["skin_subsurface"] else masters["lit"]
+        elif kind in EYE_TYPES and options["eye_shading"] == options_module.EYE_MASTER:
+            parent = masters["eye"]
         else:
             parent = masters["lit"]
         instance, changed = _ensure_instance(folder, instance_name, parent, textures)

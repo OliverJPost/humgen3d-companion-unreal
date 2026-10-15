@@ -32,6 +32,8 @@ HAIR_SHADING_MODEL = "hair_shading_model"
 MASKED_LIT = "masked_lit"
 HAIRCAP_SET_UP = "set_up"
 HAIRCAP_AS_IMPORTED = "as_imported"
+EYE_MASTER = "eye_master"
+EYE_LIT = "lit"
 
 # What the companion does without options; the cutoff and specular match
 # HAIR_CUTOFF and the skin entry of SPECULAR in humgen3d_companion
@@ -42,6 +44,7 @@ DEFAULTS = {
     "haircap": HAIRCAP_SET_UP,
     "skin_subsurface": True,
     "skin_specular": 0.3,
+    "eye_shading": EYE_MASTER,
 }
 PROJECT_DEFAULTS = dict(DEFAULTS, show_dialog_on_import=True)
 
@@ -140,8 +143,15 @@ class HumGen3DHaircap(unreal.EnumBase):
     AS_IMPORTED = unreal.uvalue(1, meta={"DisplayName": "As Imported", "ToolTip": "The material Interchange made"})
 
 
+@unreal.uenum()
+class HumGen3DEyeShading(unreal.EnumBase):
+    EYE_MASTER = unreal.uvalue(0, meta={"DisplayName": "Eye Master", "ToolTip": "The eye master: the iris refracted behind the cornea, a dark limbus, the pupil size as a parameter"})
+    LIT = unreal.uvalue(1, meta={"DisplayName": "Lit", "ToolTip": "The lit master, the eye as one painted surface"})
+
+
 _HAIR_SHADING = {HAIR_SHADING_MODEL: HumGen3DHairShading.HAIR_SHADING_MODEL, MASKED_LIT: HumGen3DHairShading.MASKED_LIT}
 _HAIRCAP = {HAIRCAP_SET_UP: HumGen3DHaircap.SET_UP, HAIRCAP_AS_IMPORTED: HumGen3DHaircap.AS_IMPORTED}
+_EYE_SHADING = {EYE_MASTER: HumGen3DEyeShading.EYE_MASTER, EYE_LIT: HumGen3DEyeShading.LIT}
 
 
 @unreal.uclass()
@@ -156,6 +166,7 @@ class HumGen3DImportOptions(unreal.Object):
     haircap = unreal.uproperty(HumGen3DHaircap, meta={"Category": "Hair", "DisplayName": "Haircap"})
     skin_subsurface = unreal.uproperty(bool, meta={"Category": "Skin", "DisplayName": "Subsurface Profile", "ToolTip": "The skin with the Subsurface Profile shading model. Off: Default Lit"})
     skin_specular = unreal.uproperty(float, meta={"Category": "Skin", "DisplayName": "Specular", "ClampMin": "0.0", "ClampMax": "1.0", "UIMin": "0.0", "UIMax": "1.0", "ToolTip": "Specular of the skin; 0.5 is the engine default, which made the skin look wet"})
+    eye_shading = unreal.uproperty(HumGen3DEyeShading, meta={"Category": "Eyes", "DisplayName": "Shading"})
 
 
 @unreal.uclass()
@@ -169,6 +180,7 @@ class HumGen3DProjectDefaults(unreal.Object):
     haircap = unreal.uproperty(HumGen3DHaircap, meta={"Category": "Hair", "DisplayName": "Haircap"})
     skin_subsurface = unreal.uproperty(bool, meta={"Category": "Skin", "DisplayName": "Subsurface Profile"})
     skin_specular = unreal.uproperty(float, meta={"Category": "Skin", "DisplayName": "Specular", "ClampMin": "0.0", "ClampMax": "1.0", "UIMin": "0.0", "UIMax": "1.0"})
+    eye_shading = unreal.uproperty(HumGen3DEyeShading, meta={"Category": "Eyes", "DisplayName": "Shading"})
 
 
 def _to_object(cls, values):
@@ -178,6 +190,8 @@ def _to_object(cls, values):
             value = _HAIR_SHADING.get(value, HumGen3DHairShading.HAIR_SHADING_MODEL)
         elif key == "haircap":
             value = _HAIRCAP.get(value, HumGen3DHaircap.SET_UP)
+        elif key == "eye_shading":
+            value = _EYE_SHADING.get(value, HumGen3DEyeShading.EYE_MASTER)
         elif isinstance(value, float):
             value = float(value)
         try:
@@ -195,6 +209,8 @@ def _from_object(obj, keys):
             value = next(k for k, v in _HAIR_SHADING.items() if v == value)
         elif key == "haircap":
             value = next(k for k, v in _HAIRCAP.items() if v == value)
+        elif key == "eye_shading":
+            value = next(k for k, v in _EYE_SHADING.items() if v == value)
         elif isinstance(value, float):
             value = round(value, 4)
         values[key] = value

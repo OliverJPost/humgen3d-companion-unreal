@@ -2,6 +2,16 @@
 
 ## 0.6.0
 
+- The eyes (`eyes` in the manifest) get a fifth master, `M_HumGen3D_Eye`: it samples the iris
+  where the view ray refracted at the cornea meets it, so the iris shifts and bulges with the
+  view angle, darkens the limbus, uses half of the baked iris normal so the glint stays one
+  highlight, reflects at the roughness of the manifest and the reflectance of water, and has
+  the pupil size as a parameter (IrisRadius, PupilRadius, IrisDepth, CorneaIOR, PupilSize,
+  LimbusDarken, LimbusWidth, IrisNormal, Roughness, Specular). Default Lit, so it needs no
+  project setting. *Eye Master* or *Lit* under *Eyes* in the import settings. The lit master
+  with the maps as they are shaded the one-surface game eyes like a painted ball. The engine's
+  Eye shading model was tried and dropped: its shadow term drew the shadow of the upper lid as
+  a hard dark band across the eye.
 - A material without an ORM map gets the plain roughness and metallic its manifest entry lists
   (`values`, Human Generator 4.0.35 and later) as the `Roughness` and `Metallic` parameters of
   its instance, with `UseORM` 0 so the master reads them instead of the ORM texture. The eyes
